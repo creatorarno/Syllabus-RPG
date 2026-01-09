@@ -50,7 +50,7 @@ class GameProvider extends ChangeNotifier {
   static const String _apiKey = 'AIzaSyAz9YLYVc4h6Wa6OhYKDzSFmr-0A4LqFpI';
 
   final GenerativeModel _model = GenerativeModel(
-    model: 'gemini-1.5-flash', // Flash is faster for JSON tasks
+    model: 'gemini-2.5-flash', // Flash is faster for JSON tasks
     apiKey: _apiKey,
   );
 
