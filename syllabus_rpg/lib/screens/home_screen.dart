@@ -1,9 +1,13 @@
 import 'dart:io';
+// 1. We alias this to 'td' to avoid conflicts with other libraries
+import 'dart:typed_data' as td;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-// We will link this to the logic provider later
+
+// Note: Syncfusion import is REMOVED. We don't need it anymore!
+
 import '../providers/game_provider.dart';
 import 'battle_screen.dart';
 
@@ -17,38 +21,45 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = false;
 
-  // Function to handle File Upload
   Future<void> _pickDocument() async {
-    // 1. Pick the file
+    // 1. Pick the file (PDF only for this mode)
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['pdf', 'txt'], // Limit to text-readable formats
+      allowedExtensions: ['pdf'],
     );
 
     if (result != null) {
       setState(() => _isLoading = true);
 
-      File file = File(result.files.single.path!);
+      try {
+        File file = File(result.files.single.path!);
 
-      // 2. Simulate "Reading the Ancient Scroll" (Processing)
-      // In the next step, we will actually send this file content to Gemini here.
-      await Future.delayed(const Duration(seconds: 2));
+        // 2. Read the file as Raw Bytes using our alias 'td'
+        // This avoids the "Uint8List is defined in..." error.
+        final td.Uint8List bytes = await file.readAsBytes();
 
-      if (mounted) {
-        // 1. Read file text (For now, we mock it or use read_pdf_text package)
-        // Since we didn't add the PDF reader logic yet, let's use a dummy text for the Hackathon Demo:
-        String mockText = "Photosynthesis is the process used by plants... [Imagine 5 pages of text]";
+        if (mounted) {
+          // 3. Send the bytes DIRECTLY to Gemini
+          // Make sure your GameProvider has the 'generateQuestFromPdf' function!
+          await Provider.of<GameProvider>(context, listen: false)
+              .generateQuestFromPdf(bytes);
 
-        // 2. Call the AI
-        await Provider.of<GameProvider>(context, listen: false).generateQuestFromText(mockText);
+          setState(() => _isLoading = false);
 
-        setState(() => _isLoading = false);
-
-        // 3. Navigate to Battle
-        Navigator.push(
+          // 4. Navigate to Battle
+          Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => const BattleScreen())
-        );
+            MaterialPageRoute(builder: (context) => const BattleScreen()),
+          );
+        }
+      } catch (e) {
+        print("Error parsing file: $e");
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Failed to read scroll: $e")),
+          );
+        }
       }
     }
   }
@@ -62,12 +73,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // --- HERO HEADER ---
-              const Icon(
-                Icons.shield_moon, // RPG-style icon
-                size: 80,
-                color: Color(0xFFFFD700),
-              ),
+              const Icon(Icons.shield_moon, size: 80, color: Color(0xFFFFD700)),
               const SizedBox(height: 20),
               Text(
                 "SYLLABUS RPG",
@@ -83,34 +89,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 60),
 
-              // --- ACTION AREA ---
               if (_isLoading) ...[
-                // Custom RPG Loading State
                 const CircularProgressIndicator(color: Color(0xFFE94560)),
                 const SizedBox(height: 20),
                 Text(
-                  "Summoning Monsters from Text...",
-                  style: GoogleFonts.cinzel(color: Colors.white70),
+                    "Gemini is reading your PDF...",
+                    style: GoogleFonts.cinzel(color: Colors.white70)
                 ),
               ] else ...[
-                // The "Start Game" Button
                 _buildQuestCard(
                   title: "New Game",
-                  subtitle: "Upload PDF or Txt to generate enemies",
+                  subtitle: "Upload PDF directly to Gemini",
                   icon: Icons.upload_file,
                   color: const Color(0xFFE94560),
                   onTap: _pickDocument,
                 ),
-
                 const SizedBox(height: 16),
-
-                // Optional: A "Load Save" button for later
                 _buildQuestCard(
                   title: "Load Save",
-                  subtitle: "Continue previous campaign (Coming Soon)",
+                  subtitle: "Coming Soon",
                   icon: Icons.history,
                   color: Colors.grey.shade800,
-                  onTap: () {}, // Disabled for now
+                  onTap: () {},
                 ),
               ],
             ],
@@ -120,14 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Helper widget to make the buttons look like "Quest Cards"
-  Widget _buildQuestCard({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
+  Widget _buildQuestCard({required String title, required String subtitle, required IconData icon, required Color color, required VoidCallback onTap}) {
     return InkWell(
       onTap: onTap,
       child: Container(
@@ -136,22 +129,13 @@ class _HomeScreenState extends State<HomeScreen> {
           color: const Color(0xFF16213E),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: color.withOpacity(0.5), width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.2),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            )
-          ],
+          boxShadow: [BoxShadow(color: color.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))],
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
+              decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
               child: Icon(icon, color: color, size: 28),
             ),
             const SizedBox(width: 16),
@@ -159,21 +143,8 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.cinzel(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  Text(
-                    subtitle,
-                    style: GoogleFonts.lato(
-                      fontSize: 14,
-                      color: Colors.white54,
-                    ),
-                  ),
+                  Text(title, style: GoogleFonts.cinzel(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(subtitle, style: GoogleFonts.lato(fontSize: 14, color: Colors.white54)),
                 ],
               ),
             ),

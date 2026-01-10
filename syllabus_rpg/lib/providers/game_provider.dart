@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data' as td;
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
@@ -55,14 +56,15 @@ class GameProvider extends ChangeNotifier {
   );
 
   // 3. THE "GENERATE QUEST" FUNCTION
-  Future<void> generateQuestFromText(String documentText) async {
+  // 1. UPDATE THIS FUNCTION to accept bytes
+  Future<void> generateQuestFromPdf(td.Uint8List pdfBytes) async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      // The Prompt: Forces JSON output strictly
-      final prompt = '''
-        You are a Game Master API. Analyze the following text and generate a quiz RPG JSON.
+      // The Prompt
+      final promptText = '''
+        You are a Game Master API. Analyze the attached PDF document and generate a quiz RPG JSON.
         The JSON must strictly follow this structure with NO markdown formatting:
         {
           "trolls": [3 questions (easy fact retrieval)],
@@ -70,28 +72,29 @@ class GameProvider extends ChangeNotifier {
           "knights": [3 questions (hard logic)],
           "final_boss": {1 question (very hard synthesis)}
         }
-        
         Each question object must look like:
         {"q": "question text", "opts": ["A", "B", "C", "D"], "a": 0} 
-        (where 'a' is the index of the correct option 0-3).
-
-        TEXT TO ANALYZE:
-        $documentText
       ''';
 
-      final content = [Content.text(prompt)];
+      // 2. CREATE MULTIMODAL CONTENT (Text + PDF Bytes)
+      final content = [
+        Content.multi([
+          TextPart(promptText),
+          DataPart('application/pdf', pdfBytes), // <--- THIS IS THE MAGIC
+        ])
+      ];
+
+      // 3. SEND TO GEMINI
       final response = await _model.generateContent(content);
 
       if (response.text == null) throw Exception("AI returned empty text");
 
-      // Clean the output (Gemini sometimes adds ```json ... ```)
+      // Clean and Parse
       String cleanJson = response.text!.replaceAll('```json', '').replaceAll('```', '');
-
       _parseGameData(cleanJson);
 
     } catch (e) {
       print("Error summoning monsters: $e");
-      // Handle error (maybe add a dummy question for testing)
     } finally {
       _isLoading = false;
       notifyListeners();
