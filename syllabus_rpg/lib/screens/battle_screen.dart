@@ -246,6 +246,12 @@ class BattleScreen extends StatelessWidget {
 
   Widget _buildPixelEndScreen(BuildContext context, bool victory, GameProvider game, TextStyle headerFont, TextStyle bodyFont) {
     Color statusColor = victory ? kPixelGold : kPixelRed;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Check if we actually played a game (simple check)
+      if (!game.isLoading) {
+        game.recordMatchResult();
+      }
+    });
     return Scaffold(
       backgroundColor: kPixelDarkBlue,
       body: Center(

@@ -42,6 +42,9 @@ class GameProvider extends ChangeNotifier {
   int _correctAnswersCount = 0;
   bool _isLoading = false;
 
+  // NEW: Safety Lock to prevent duplicate saves
+  bool _isMatchSaved = false;
+
   // Quest Data
   List<Question> _questions = [];
   int _currentQuestionIndex = 0;
@@ -53,7 +56,7 @@ class GameProvider extends ChangeNotifier {
   String get username => _username;
   int get totalUserXp => _totalUserXp;
   int get hp => _hp;
-  int get xp => _sessionXp; // XP earned in current session
+  int get xp => _sessionXp;
   int get correctAnswersCount => _correctAnswersCount;
   bool get isLoading => _isLoading;
   List<Question> get questions => _questions;
@@ -70,11 +73,10 @@ class GameProvider extends ChangeNotifier {
   // 3. AI CONFIGURATION
   // ==========================================
 
-  // Ensure your .env file has GEMINI_API_KEY
   static final String _apiKey = dotenv.env['GEMINI_API_KEY']!;
 
   final GenerativeModel _model = GenerativeModel(
-    model: 'gemini-2.5-flash', // Flash is fast and good for this
+    model: 'gemini-2.5-flash',
     apiKey: _apiKey,
   );
 
@@ -82,7 +84,7 @@ class GameProvider extends ChangeNotifier {
   // 4. SUPABASE ACTIONS
   // ==========================================
 
-  // Load User Profile (Name & Total XP)
+  // Load User Profile
   Future<void> loadUserProfile() async {
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
@@ -102,15 +104,27 @@ class GameProvider extends ChangeNotifier {
     }
   }
 
-  // Save Match History & Update XP
+  // Records match result
   Future<void> recordMatchResult() async {
+    // 1. SAFETY CHECK: If already saved, stop immediately.
+    if (_isMatchSaved) return;
+
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
 
     try {
+      _isMatchSaved = true; // Lock it
       String result = isVictory ? "Victory" : "Defeat";
 
-      // 1. Insert into 'matches' table
+      print("--- STARTING SAVE ---"); // Debug Print
+
+      // 2. OPTIMISTIC UPDATE: Update local app state immediately so user sees points
+      if (_sessionXp > 0) {
+        _totalUserXp += _sessionXp;
+        notifyListeners(); // HUD updates instantly
+      }
+
+      // 3. DATABASE: Insert Match History
       await Supabase.instance.client.from('matches').insert({
         'user_id': user.id,
         'result': result,
@@ -119,19 +133,20 @@ class GameProvider extends ChangeNotifier {
         'total_questions': _questions.length,
       });
 
-      // 2. Update Profile Total XP (Only if they earned something)
+      // 4. DATABASE: Update Profile XP
       if (_sessionXp > 0) {
-        _totalUserXp += _sessionXp;
         await Supabase.instance.client
             .from('profiles')
-            .update({'xp': _totalUserXp})
+            .update({'xp': _totalUserXp}) // Use the new total
             .eq('id', user.id);
       }
 
-      // Note: We don't reset _sessionXp here immediately so the End Screen can still show it.
-      notifyListeners();
+      print("--- SAVE SUCCESSFUL ---");
+
     } catch (e) {
-      print("Error recording match: $e");
+      print("CRITICAL ERROR RECORDING MATCH: $e");
+      // Optional: Revert local XP if DB fails, or just keep it for this session
+      _isMatchSaved = false; // Unlock so we can try again if needed
     }
   }
 
@@ -139,13 +154,11 @@ class GameProvider extends ChangeNotifier {
   // 5. GAMEPLAY LOGIC
   // ==========================================
 
-  // Generate Quest from PDF Bytes
   Future<void> generateQuestFromPdf(td.Uint8List pdfBytes) async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      // Dynamic Prompt based on content length
       final promptText = '''
         You are a Game Master API. Analyze the attached PDF content density.
         Generate a quiz RPG JSON. 
@@ -179,7 +192,6 @@ class GameProvider extends ChangeNotifier {
       final response = await _model.generateContent(content);
       if (response.text == null) throw Exception("AI returned empty text");
 
-      // Clean Markdown if Gemini adds it
       String cleanJson = response.text!
           .replaceAll('```json', '')
           .replaceAll('```', '')
@@ -189,14 +201,12 @@ class GameProvider extends ChangeNotifier {
 
     } catch (e) {
       print("Error summoning monsters: $e");
-      // In a real app, set an error state here to show UI feedback
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  // Parse JSON to Question Objects
   void _parseGameData(String jsonString) {
     try {
       final Map<String, dynamic> data = json.decode(jsonString);
@@ -219,8 +229,6 @@ class GameProvider extends ChangeNotifier {
       if (data['knights'] != null) addQuestions(data['knights'], Difficulty.knight, 50);
 
       if (data['final_boss'] != null) {
-        // Handle boss object (sometimes AI returns a list, sometimes an object, prompt asked for object)
-        // We handle both just in case
         if (data['final_boss'] is List) {
           addQuestions(data['final_boss'], Difficulty.boss, 500);
         } else {
@@ -242,14 +250,13 @@ class GameProvider extends ChangeNotifier {
       _correctAnswersCount = 0;
       _hp = 3;
       _sessionXp = 0;
+      _isMatchSaved = false; // <--- RESET LOCK FOR NEW GAME
 
     } catch (e) {
       print("JSON Parsing Error: $e");
-      print("Raw JSON: $jsonString");
     }
   }
 
-  // Submit Answer
   bool submitAnswer(int selectedIndex) {
     if (currentQuestion == null) return false;
 
@@ -267,12 +274,12 @@ class GameProvider extends ChangeNotifier {
     return isCorrect;
   }
 
-  // Restart Game (Manual Reset)
   void restartGame() {
     _currentQuestionIndex = 0;
     _correctAnswersCount = 0;
     _hp = 3;
     _sessionXp = 0;
+    _isMatchSaved = false; // Reset lock
     notifyListeners();
   }
 }

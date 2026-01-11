@@ -139,6 +139,23 @@ class _HomeScreenState extends State<HomeScreen> {
             context,
             MaterialPageRoute(builder: (context) => const BattleScreen()),
           );
+
+          // 1. Wait for the battle to finish
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const BattleScreen()),
+          );
+
+          // 2. We are back! Refresh the data immediately
+          if (mounted) {
+            setState(() => _isLoadingLeaderboard = true); // Show loading spinner
+
+            // Reload User Stats (HUD)
+            await Provider.of<GameProvider>(context, listen: false).loadUserProfile();
+
+            // Reload Leaderboard List
+            await _fetchLeaderboard();
+          }
         }
       } catch (e) {
         print("Error parsing file: $e");
