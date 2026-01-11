@@ -1,6 +1,6 @@
 # ⚔️ Syllabus RPG: Quest for Knowledge ⚔️
 
-![Syllabus RPG Hero](./assets/readme_hero.png)
+![Syllabus RPG Hero](./syllabus_rpg/assets/readme_hero.png)
 
 [![Flutter](https://img.shields.io/badge/Flutter-%2302569B.svg?style=for-the-badge&logo=Flutter&logoColor=white)](https://flutter.dev)
 [![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com)
