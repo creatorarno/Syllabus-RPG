@@ -3,9 +3,10 @@ import 'dart:typed_data' as td;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:supabase_flutter/supabase_flutter.dart'; // Import Supabase
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-// ... (Keep Enum Difficulty and Class Question as they are) ...
+// --- DATA MODELS ---
+
 enum Difficulty { troll, guard, knight, boss }
 
 class Question {
@@ -24,23 +25,36 @@ class Question {
   });
 }
 
-class GameProvider extends ChangeNotifier {
-  // --- USER PROFILE DATA ---
-  String _username = "Hero";
-  int _totalUserXp = 0; // The stored XP from Database
+// --- PROVIDER LOGIC ---
 
-  // --- GAME SESSION DATA ---
+class GameProvider extends ChangeNotifier {
+  // ==========================================
+  // 1. STATE VARIABLES
+  // ==========================================
+
+  // User Profile (From Database)
+  String _username = "Hero";
+  int _totalUserXp = 0;
+
+  // Game Session (Current Match)
   int _hp = 3;
-  int _sessionXp = 0; // XP earned in THIS specific battle
+  int _sessionXp = 0;
+  int _correctAnswersCount = 0;
   bool _isLoading = false;
+
+  // Quest Data
   List<Question> _questions = [];
   int _currentQuestionIndex = 0;
 
-  // Getters
+  // ==========================================
+  // 2. GETTERS
+  // ==========================================
+
   String get username => _username;
   int get totalUserXp => _totalUserXp;
   int get hp => _hp;
-  int get xp => _sessionXp; // Current session XP
+  int get xp => _sessionXp; // XP earned in current session
+  int get correctAnswersCount => _correctAnswersCount;
   bool get isLoading => _isLoading;
   List<Question> get questions => _questions;
 
@@ -52,18 +66,23 @@ class GameProvider extends ChangeNotifier {
   bool get isGameOver => _hp <= 0;
   bool get isVictory => _currentQuestionIndex >= _questions.length && _hp > 0;
 
-  // AI Model
+  // ==========================================
+  // 3. AI CONFIGURATION
+  // ==========================================
+
+  // Ensure your .env file has GEMINI_API_KEY
   static final String _apiKey = dotenv.env['GEMINI_API_KEY']!;
+
   final GenerativeModel _model = GenerativeModel(
-    model: 'gemini-1.5-flash',
+    model: 'gemini-2.5-flash', // Flash is fast and good for this
     apiKey: _apiKey,
   );
 
   // ==========================================
-  // 1. SUPABASE INTEGRATION
+  // 4. SUPABASE ACTIONS
   // ==========================================
 
-  // Call this when HomeScreen loads
+  // Load User Profile (Name & Total XP)
   Future<void> loadUserProfile() async {
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
@@ -83,53 +102,71 @@ class GameProvider extends ChangeNotifier {
     }
   }
 
-  // Call this when Battle Ends (Victory or Defeat)
-  Future<void> saveScoreToDatabase() async {
-    if (_sessionXp == 0) return; // No need to save 0
-
+  // Save Match History & Update XP
+  Future<void> recordMatchResult() async {
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
 
     try {
-      // 1. Update local total
-      _totalUserXp += _sessionXp;
+      String result = isVictory ? "Victory" : "Defeat";
 
-      // 2. Push to Supabase
-      // Note: In a real app, use an RPC function to increment atomically.
-      // For hackathon, direct update is fine.
-      await Supabase.instance.client
-          .from('profiles')
-          .update({'xp': _totalUserXp})
-          .eq('id', user.id);
+      // 1. Insert into 'matches' table
+      await Supabase.instance.client.from('matches').insert({
+        'user_id': user.id,
+        'result': result,
+        'xp_earned': _sessionXp,
+        'questions_answered': _correctAnswersCount,
+        'total_questions': _questions.length,
+      });
 
-      // Reset session XP so we don't double save
-      _sessionXp = 0;
+      // 2. Update Profile Total XP (Only if they earned something)
+      if (_sessionXp > 0) {
+        _totalUserXp += _sessionXp;
+        await Supabase.instance.client
+            .from('profiles')
+            .update({'xp': _totalUserXp})
+            .eq('id', user.id);
+      }
+
+      // Note: We don't reset _sessionXp here immediately so the End Screen can still show it.
       notifyListeners();
     } catch (e) {
-      print("Error saving score: $e");
+      print("Error recording match: $e");
     }
   }
 
   // ==========================================
-  // 2. GAME LOGIC
+  // 5. GAMEPLAY LOGIC
   // ==========================================
 
+  // Generate Quest from PDF Bytes
   Future<void> generateQuestFromPdf(td.Uint8List pdfBytes) async {
     _isLoading = true;
     notifyListeners();
 
     try {
+      // Dynamic Prompt based on content length
       final promptText = '''
-        You are a Game Master API. Analyze the attached PDF document and generate a quiz RPG JSON.
-        The JSON must strictly follow this structure with NO markdown formatting:
+        You are a Game Master API. Analyze the attached PDF content density.
+        Generate a quiz RPG JSON. 
+        
+        CRITICAL RULE: The number of questions must depend on the length of the content.
+        - If the content is short/simple: Generate exactly 10 questions.
+        - If the content is long/complex: Generate up to 20 questions.
+        
+        Distribution:
+        - "trolls": ~30% (Easy fact retrieval)
+        - "guards": ~30% (Moderate comparison)
+        - "knights": ~30% (Hard logic)
+        - "final_boss": {1 question (Expert synthesis)}
+
+        Strict JSON Structure (No Markdown, pure JSON):
         {
-          "trolls": [3 questions (easy fact retrieval)],
-          "guards": [3 questions (moderate comparison)],
-          "knights": [3 questions (hard logic)],
-          "final_boss": {1 question (very hard synthesis)}
+          "trolls": [{"q": "...", "opts": ["A","B","C","D"], "a": 0}, ...],
+          "guards": [...],
+          "knights": [...],
+          "final_boss": {"q": "...", "opts": [...], "a": 0}
         }
-        Each question object must look like:
-        {"q": "question text", "opts": ["A", "B", "C", "D"], "a": 0} 
       ''';
 
       final content = [
@@ -142,53 +179,77 @@ class GameProvider extends ChangeNotifier {
       final response = await _model.generateContent(content);
       if (response.text == null) throw Exception("AI returned empty text");
 
-      String cleanJson = response.text!.replaceAll('```json', '').replaceAll('```', '');
+      // Clean Markdown if Gemini adds it
+      String cleanJson = response.text!
+          .replaceAll('```json', '')
+          .replaceAll('```', '')
+          .trim();
+
       _parseGameData(cleanJson);
 
     } catch (e) {
       print("Error summoning monsters: $e");
+      // In a real app, set an error state here to show UI feedback
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
+  // Parse JSON to Question Objects
   void _parseGameData(String jsonString) {
-    final Map<String, dynamic> data = json.decode(jsonString);
-    List<Question> newQuest = [];
+    try {
+      final Map<String, dynamic> data = json.decode(jsonString);
+      List<Question> newQuest = [];
 
-    void addQuestions(List<dynamic> list, Difficulty diff, int xp) {
-      for (var q in list) {
-        newQuest.add(Question(
-          text: q['q'],
-          options: List<String>.from(q['opts']),
-          correctIndex: q['a'],
-          difficulty: diff,
-          xpReward: xp,
-        ));
+      void addQuestions(List<dynamic> list, Difficulty diff, int xp) {
+        for (var q in list) {
+          newQuest.add(Question(
+            text: q['q'],
+            options: List<String>.from(q['opts']),
+            correctIndex: q['a'],
+            difficulty: diff,
+            xpReward: xp,
+          ));
+        }
       }
-    }
 
-    if (data['trolls'] != null) addQuestions(data['trolls'], Difficulty.troll, 10);
-    if (data['guards'] != null) addQuestions(data['guards'], Difficulty.guard, 20);
-    if (data['knights'] != null) addQuestions(data['knights'], Difficulty.knight, 50);
-    if (data['final_boss'] != null) {
-      var boss = data['final_boss'];
-      newQuest.add(Question(
-        text: boss['q'],
-        options: List<String>.from(boss['opts']),
-        correctIndex: boss['a'],
-        difficulty: Difficulty.boss,
-        xpReward: 500,
-      ));
-    }
+      if (data['trolls'] != null) addQuestions(data['trolls'], Difficulty.troll, 10);
+      if (data['guards'] != null) addQuestions(data['guards'], Difficulty.guard, 20);
+      if (data['knights'] != null) addQuestions(data['knights'], Difficulty.knight, 50);
 
-    _questions = newQuest;
-    _currentQuestionIndex = 0;
-    _hp = 3;
-    _sessionXp = 0; // Reset SESSION xp, not total user XP
+      if (data['final_boss'] != null) {
+        // Handle boss object (sometimes AI returns a list, sometimes an object, prompt asked for object)
+        // We handle both just in case
+        if (data['final_boss'] is List) {
+          addQuestions(data['final_boss'], Difficulty.boss, 500);
+        } else {
+          var boss = data['final_boss'];
+          newQuest.add(Question(
+            text: boss['q'],
+            options: List<String>.from(boss['opts']),
+            correctIndex: boss['a'],
+            difficulty: Difficulty.boss,
+            xpReward: 500,
+          ));
+        }
+      }
+
+      _questions = newQuest;
+
+      // Reset Session State
+      _currentQuestionIndex = 0;
+      _correctAnswersCount = 0;
+      _hp = 3;
+      _sessionXp = 0;
+
+    } catch (e) {
+      print("JSON Parsing Error: $e");
+      print("Raw JSON: $jsonString");
+    }
   }
 
+  // Submit Answer
   bool submitAnswer(int selectedIndex) {
     if (currentQuestion == null) return false;
 
@@ -196,6 +257,7 @@ class GameProvider extends ChangeNotifier {
 
     if (isCorrect) {
       _sessionXp += currentQuestion!.xpReward;
+      _correctAnswersCount++;
       _currentQuestionIndex++;
     } else {
       _hp -= 1;
@@ -205,8 +267,10 @@ class GameProvider extends ChangeNotifier {
     return isCorrect;
   }
 
+  // Restart Game (Manual Reset)
   void restartGame() {
     _currentQuestionIndex = 0;
+    _correctAnswersCount = 0;
     _hp = 3;
     _sessionXp = 0;
     notifyListeners();

@@ -1,4 +1,5 @@
 import 'dart:io';
+// 1. We alias this to 'td' to avoid conflicts with other libraries
 import 'dart:typed_data' as td;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -6,10 +7,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+// --- INTERNAL IMPORTS ---
 import '../providers/game_provider.dart';
-import 'auth/login_screen.dart';  // <--- Import this to navigate back
+import 'auth/login_screen.dart';
+import 'profile_screen.dart';
 import 'battle_screen.dart';
-
 
 // --- THEME CONSTANTS ---
 const Color kPixelDarkBlue = Color(0xFF141020);
@@ -34,17 +36,22 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = false;
   String _selectedTimeframe = 'All Time';
 
+  // Leaderboard Data
   List<Map<String, dynamic>> _leaderboard = [];
   bool _isLoadingLeaderboard = true;
 
   @override
   void initState() {
     super.initState();
+    // 1. Load User Profile (Name & Total XP) into Provider
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<GameProvider>(context, listen: false).loadUserProfile();
     });
+    // 2. Fetch Leaderboard Data
     _fetchLeaderboard();
   }
+
+  // --- SUPABASE ACTIONS ---
 
   Future<void> _fetchLeaderboard() async {
     try {
@@ -66,7 +73,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // --- LOGOUT LOGIC ---
   Future<void> _signOut() async {
     // 1. Show Confirmation Dialog
     bool? confirm = await showDialog(
@@ -105,11 +111,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  double _scale(BuildContext context, double value) {
-    double screenWidth = MediaQuery.of(context).size.width;
-    double scaleFactor = (screenWidth / 375.0).clamp(0.8, 1.2);
-    return value * scaleFactor;
-  }
+  // --- GAME LOGIC ---
 
   Future<void> _pickDocument() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -122,14 +124,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
       try {
         File file = File(result.files.single.path!);
+        // Read file as Raw Bytes
         final td.Uint8List bytes = await file.readAsBytes();
 
         if (mounted) {
+          // Send bytes to Gemini via provider
           await Provider.of<GameProvider>(context, listen: false)
               .generateQuestFromPdf(bytes);
 
           setState(() => _isLoading = false);
 
+          // Navigate to Battle
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const BattleScreen()),
@@ -148,6 +153,14 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     }
+  }
+
+  // --- UI HELPERS ---
+
+  double _scale(BuildContext context, double value) {
+    double screenWidth = MediaQuery.of(context).size.width;
+    double scaleFactor = (screenWidth / 375.0).clamp(0.8, 1.2);
+    return value * scaleFactor;
   }
 
   @override
@@ -169,12 +182,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // 1. HERO HUD
+                    // ============================================
+                    // 1. HERO HUD (Avatar, Stats, Logout)
+                    // ============================================
                     _buildHeroHUD(context, gameProvider, headerFont, bodyFont),
 
                     SizedBox(height: _scale(context, 20)),
 
-                    // 2. LEADERBOARD
+                    // ============================================
+                    // 2. LEADERBOARD (Tabs + List)
+                    // ============================================
                     Expanded(
                       child: Container(
                         decoration: _pixelDecoration(
@@ -185,6 +202,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           children: [
                             _buildLeaderboardHeader(context, headerFont),
                             _buildTimeframeTabs(context, headerFont),
+
+                            // LEADERBOARD LIST
                             Expanded(
                               child: _isLoadingLeaderboard
                                   ? Center(child: CircularProgressIndicator(color: kPixelGold))
@@ -205,7 +224,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     SizedBox(height: _scale(context, 20)),
 
-                    // 3. MAIN ACTION
+                    // ============================================
+                    // 3. MAIN ACTION (Start Quest)
+                    // ============================================
                     SizedBox(
                       height: _scale(context, 80),
                       child: _isLoading
@@ -221,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ================= WIDGETS =================
+  // ================= WIDGET BUILDERS =================
 
   Widget _buildHeroHUD(BuildContext context, GameProvider game, TextStyle headerFont, TextStyle bodyFont) {
     double avatarSize = _scale(context, 45);
@@ -231,18 +252,25 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: _pixelDecoration(bgColor: kPixelCardBg, borderColor: kPixelStoneGray),
       child: Row(
         children: [
-          // Avatar
-          Container(
-            width: avatarSize, height: avatarSize,
-            decoration: BoxDecoration(
-              color: kPixelStoneGray,
-              border: Border.all(color: kPixelGold, width: _scale(context, 3)),
+          // AVATAR -> Navigate to Profile
+          InkWell(
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const ProfileScreen()));
+            },
+            child: Container(
+              width: avatarSize, height: avatarSize,
+              decoration: BoxDecoration(
+                color: kPixelStoneGray,
+                border: Border.all(color: kPixelGold, width: _scale(context, 3)),
+              ),
+              // Use Icon to ensure no crashes if asset is missing.
+              // If you have 'assets/Avatars_01.png', replace Icon with Image.asset.
+              child: Image.asset('assets/avatars/Avatars_01.png'),
             ),
-            child: Icon(Icons.person, color: Colors.white, size: avatarSize * 0.6),
           ),
           SizedBox(width: _scale(context, 15)),
 
-          // Stats
+          // STATS (Username & XP)
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -261,7 +289,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         child: FractionallySizedBox(
                           alignment: Alignment.centerLeft,
-                          widthFactor: 0.5,
+                          widthFactor: 0.5, // You can make this dynamic based on level logic
                           child: Container(color: kPixelGreen),
                         ),
                       ),
@@ -274,7 +302,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
-          // --- LOGOUT BUTTON ---
+          // SEPARATOR & LOGOUT
           Container(
               width: 1,
               height: 30,
@@ -334,6 +362,7 @@ class _HomeScreenState extends State<HomeScreen> {
           return GestureDetector(
             onTap: () {
               setState(() => _selectedTimeframe = tab);
+              // TODO: Add logic to fetch different timeframes if your DB supports it
             },
             child: Container(
               margin: EdgeInsets.only(right: _scale(context, 8)),
@@ -378,12 +407,15 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         child: Row(
           children: [
+            // Rank Number
             Container(
               width: _scale(context, 24),
               alignment: Alignment.center,
               child: Text("#$rank", style: headerFont.copyWith(color: rankColor, fontSize: _scale(context, 12))),
             ),
             SizedBox(width: _scale(context, 12)),
+
+            // Player Name
             Expanded(
               child: Text(
                 player['username'] ?? "Unknown",
@@ -391,6 +423,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+
+            // Player XP
             Row(
               children: [
                 Icon(Icons.star, color: kPixelGold, size: _scale(context, 14)),
@@ -440,45 +474,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text("NEW QUEST", style: headerFont.copyWith(fontSize: _scale(context, 14), color: Colors.white)),
                 Text("Summon from PDF", style: bodyFont.copyWith(fontSize: _scale(context, 18))),
               ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPixelGridCard({
-    required BuildContext context,
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required TextStyle headerFont,
-    required TextStyle bodyFont,
-    required bool isActive,
-    required VoidCallback onTap,
-  }) {
-    final double iconSize = _scale(context, 28);
-    return InkWell(
-      onTap: isActive ? onTap : null,
-      child: Container(
-        padding: EdgeInsets.all(_scale(context, 8)),
-        decoration: _pixelDecoration(
-          bgColor: isActive ? kPixelCardBg : kPixelInactiveBg,
-          borderColor: isActive ? kPixelStoneGray : kPixelCardBg,
-          hasShadow: isActive,
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: iconSize, color: isActive ? kPixelLightText : Colors.white24),
-            SizedBox(height: _scale(context, 8)),
-            FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(title, style: headerFont.copyWith(fontSize: _scale(context, 14), color: isActive ? Colors.white : Colors.white54))
-            ),
-            FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(subtitle, style: bodyFont.copyWith(fontSize: _scale(context, 16), color: isActive ? kPixelGold : Colors.white24))
             ),
           ],
         ),
