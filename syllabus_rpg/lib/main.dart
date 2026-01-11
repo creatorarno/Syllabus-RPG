@@ -1,12 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
-// We will create these files next, but I'm importing them now so you see the structure
+// Screen Imports
+import 'package:supabase_flutter/supabase_flutter.dart'; // <--- Import Supabase
+import 'package:syllabus_rpg/screens/auth/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'providers/game_provider.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await dotenv.load(fileName: ".env");
+
+  // 1. INITIALIZE SUPABASE (Put your real keys here)
+  await Supabase.initialize(
+    url: dotenv.env['SUPABASE_URL']!,
+    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+  );
+
   runApp(const DungeonQuizApp());
 }
 
@@ -17,21 +30,26 @@ class DungeonQuizApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        // This is the brain of the app (Handles HP, Questions, Logic)
         ChangeNotifierProvider(create: (_) => GameProvider()),
       ],
       child: MaterialApp(
         title: 'Syllabus RPG',
         debugShowCheckedModeBanner: false,
 
-        // --- THE RPG THEME CONFIGURATION ---
+        // --- THEME CONFIGURATION ---
         theme: _buildRPGTheme(),
 
-        // Define Routes
-        initialRoute: '/',
+        // 2. SESSION CHECK LOGIC
+        // If the user is logged in (session exists), go to Home.
+        // Otherwise, go to Login.
+        home: Supabase.instance.client.auth.currentSession != null
+            ? const HomeScreen()
+            : const LoginScreen(),
+
+        // Note: I removed initialRoute: '/' because 'home:' handles the entry point now.
         routes: {
-          '/': (context) => const HomeScreen(),
-          // We will add '/battle_screen' later
+          // You can keep other named routes here if needed
+          // '/battle': (context) => const BattleScreen(),
         },
       ),
     );
@@ -40,46 +58,28 @@ class DungeonQuizApp extends StatelessWidget {
   ThemeData _buildRPGTheme() {
     return ThemeData(
       useMaterial3: true,
-      // Dark Mode Base
       brightness: Brightness.dark,
-      scaffoldBackgroundColor: const Color(0xFF1A1A2E), // Deep Void Blue
+      scaffoldBackgroundColor: const Color(0xFF141020), // Updated to Pixel Dark Blue
 
-      // Color Palette
       colorScheme: const ColorScheme.dark(
-        primary: Color(0xFFFFD700),    // Gold (for buttons/loot)
-        secondary: Color(0xFFE94560),  // Red (for danger/Trolls)
-        surface: Color(0xFF16213E),    // Card Backgrounds
-        onSurface: Colors.white,
+        primary: Color(0xFFFFD700),    // Gold
+        secondary: Color(0xFFE94560),  // Red
+        surface: Color(0xFF2A2636),    // Pixel Card Bg
+        onSurface: Color(0xFFEFEFEF),  // Pixel Light Text
       ),
 
-      // Text Styling (Cinzel is a great fantasy font)
       textTheme: TextTheme(
-        displayLarge: GoogleFonts.cinzel(
-            fontSize: 32,
-            fontWeight: FontWeight.bold,
+        displayLarge: GoogleFonts.pressStart2p(
+            fontSize: 24, // Smaller font size for Pixel font
             color: const Color(0xFFFFD700)
         ),
-        headlineMedium: GoogleFonts.cinzel(
-            fontSize: 24,
+        headlineMedium: GoogleFonts.pressStart2p(
+            fontSize: 16,
             fontWeight: FontWeight.w600
         ),
-        bodyLarge: GoogleFonts.lato(
-            fontSize: 18,
-            color: Colors.white70
-        ),
-      ),
-
-      // Button Styling
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFE94560), // Red Battle Button
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: const BorderSide(color: Color(0xFFFFD700), width: 2), // Gold Border
-          ),
-          textStyle: GoogleFonts.cinzel(fontSize: 18, fontWeight: FontWeight.bold),
+        bodyLarge: GoogleFonts.vt323(
+            fontSize: 22, // VT323 needs to be larger to be readable
+            color: const Color(0xFFEFEFEF)
         ),
       ),
     );

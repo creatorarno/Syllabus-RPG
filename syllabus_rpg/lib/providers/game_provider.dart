@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data' as td;
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'; // Import Supabase
 
-// --- DATA MODELS ---
-
+// ... (Keep Enum Difficulty and Class Question as they are) ...
 enum Difficulty { troll, guard, knight, boss }
 
 class Question {
@@ -23,21 +24,26 @@ class Question {
   });
 }
 
-// --- PROVIDER LOGIC ---
-
 class GameProvider extends ChangeNotifier {
-  // 1. GAME STATS
-  int _hp = 3; // 3 Hearts
-  int _xp = 0;
+  // --- USER PROFILE DATA ---
+  String _username = "Hero";
+  int _totalUserXp = 0; // The stored XP from Database
+
+  // --- GAME SESSION DATA ---
+  int _hp = 3;
+  int _sessionXp = 0; // XP earned in THIS specific battle
   bool _isLoading = false;
   List<Question> _questions = [];
   int _currentQuestionIndex = 0;
 
-  // Getters for UI
+  // Getters
+  String get username => _username;
+  int get totalUserXp => _totalUserXp;
   int get hp => _hp;
-  int get xp => _xp;
+  int get xp => _sessionXp; // Current session XP
   bool get isLoading => _isLoading;
   List<Question> get questions => _questions;
+
   Question? get currentQuestion =>
       _questions.isNotEmpty && _currentQuestionIndex < _questions.length
           ? _questions[_currentQuestionIndex]
@@ -46,23 +52,73 @@ class GameProvider extends ChangeNotifier {
   bool get isGameOver => _hp <= 0;
   bool get isVictory => _currentQuestionIndex >= _questions.length && _hp > 0;
 
-  // 2. GEMINI CONFIGURATION
-  // REPLACE WITH YOUR API KEY
-  static const String _apiKey = 'AIzaSyAz9YLYVc4h6Wa6OhYKDzSFmr-0A4LqFpI';
-
+  // AI Model
+  static final String _apiKey = dotenv.env['GEMINI_API_KEY']!;
   final GenerativeModel _model = GenerativeModel(
-    model: 'gemini-2.5-flash', // Flash is faster for JSON tasks
+    model: 'gemini-1.5-flash',
     apiKey: _apiKey,
   );
 
-  // 3. THE "GENERATE QUEST" FUNCTION
-  // 1. UPDATE THIS FUNCTION to accept bytes
+  // ==========================================
+  // 1. SUPABASE INTEGRATION
+  // ==========================================
+
+  // Call this when HomeScreen loads
+  Future<void> loadUserProfile() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final data = await Supabase.instance.client
+          .from('profiles')
+          .select('username, xp')
+          .eq('id', user.id)
+          .single();
+
+      _username = data['username'] as String;
+      _totalUserXp = (data['xp'] as num).toInt();
+      notifyListeners();
+    } catch (e) {
+      print("Error loading profile: $e");
+    }
+  }
+
+  // Call this when Battle Ends (Victory or Defeat)
+  Future<void> saveScoreToDatabase() async {
+    if (_sessionXp == 0) return; // No need to save 0
+
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      // 1. Update local total
+      _totalUserXp += _sessionXp;
+
+      // 2. Push to Supabase
+      // Note: In a real app, use an RPC function to increment atomically.
+      // For hackathon, direct update is fine.
+      await Supabase.instance.client
+          .from('profiles')
+          .update({'xp': _totalUserXp})
+          .eq('id', user.id);
+
+      // Reset session XP so we don't double save
+      _sessionXp = 0;
+      notifyListeners();
+    } catch (e) {
+      print("Error saving score: $e");
+    }
+  }
+
+  // ==========================================
+  // 2. GAME LOGIC
+  // ==========================================
+
   Future<void> generateQuestFromPdf(td.Uint8List pdfBytes) async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      // The Prompt
       final promptText = '''
         You are a Game Master API. Analyze the attached PDF document and generate a quiz RPG JSON.
         The JSON must strictly follow this structure with NO markdown formatting:
@@ -76,20 +132,16 @@ class GameProvider extends ChangeNotifier {
         {"q": "question text", "opts": ["A", "B", "C", "D"], "a": 0} 
       ''';
 
-      // 2. CREATE MULTIMODAL CONTENT (Text + PDF Bytes)
       final content = [
         Content.multi([
           TextPart(promptText),
-          DataPart('application/pdf', pdfBytes), // <--- THIS IS THE MAGIC
+          DataPart('application/pdf', pdfBytes),
         ])
       ];
 
-      // 3. SEND TO GEMINI
       final response = await _model.generateContent(content);
-
       if (response.text == null) throw Exception("AI returned empty text");
 
-      // Clean and Parse
       String cleanJson = response.text!.replaceAll('```json', '').replaceAll('```', '');
       _parseGameData(cleanJson);
 
@@ -101,12 +153,10 @@ class GameProvider extends ChangeNotifier {
     }
   }
 
-  // 4. PARSING LOGIC (JSON -> Dart Objects)
   void _parseGameData(String jsonString) {
     final Map<String, dynamic> data = json.decode(jsonString);
     List<Question> newQuest = [];
 
-    // Helper to map difficulty
     void addQuestions(List<dynamic> list, Difficulty diff, int xp) {
       for (var q in list) {
         newQuest.add(Question(
@@ -119,16 +169,9 @@ class GameProvider extends ChangeNotifier {
       }
     }
 
-    // Add Trolls (Easy - 10 XP)
     if (data['trolls'] != null) addQuestions(data['trolls'], Difficulty.troll, 10);
-
-    // Add Guards (Medium - 20 XP)
     if (data['guards'] != null) addQuestions(data['guards'], Difficulty.guard, 20);
-
-    // Add Knights (Hard - 50 XP)
     if (data['knights'] != null) addQuestions(data['knights'], Difficulty.knight, 50);
-
-    // Add Final Boss (Expert - 500 XP)
     if (data['final_boss'] != null) {
       var boss = data['final_boss'];
       newQuest.add(Question(
@@ -142,23 +185,19 @@ class GameProvider extends ChangeNotifier {
 
     _questions = newQuest;
     _currentQuestionIndex = 0;
-    _hp = 3; // Reset HP
-    _xp = 0; // Reset XP
+    _hp = 3;
+    _sessionXp = 0; // Reset SESSION xp, not total user XP
   }
 
-  // 5. BATTLE LOGIC
-  // Returns true if correct, false if wrong
   bool submitAnswer(int selectedIndex) {
     if (currentQuestion == null) return false;
 
     bool isCorrect = selectedIndex == currentQuestion!.correctIndex;
 
     if (isCorrect) {
-      _xp += currentQuestion!.xpReward;
-      // Move to next enemy
+      _sessionXp += currentQuestion!.xpReward;
       _currentQuestionIndex++;
     } else {
-      // Take Damage
       _hp -= 1;
     }
 
@@ -169,7 +208,7 @@ class GameProvider extends ChangeNotifier {
   void restartGame() {
     _currentQuestionIndex = 0;
     _hp = 3;
-    _xp = 0;
+    _sessionXp = 0;
     notifyListeners();
   }
 }

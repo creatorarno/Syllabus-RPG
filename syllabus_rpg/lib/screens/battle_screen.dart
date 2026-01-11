@@ -226,19 +226,19 @@ class BattleScreen extends StatelessWidget {
       onTap: onTap,
       child: Container(
         alignment: Alignment.center,
-        padding: EdgeInsets.symmetric(horizontal: _scale(context, 8)),
+        padding: EdgeInsets.symmetric(horizontal: _scale(context, 6), vertical: _scale(context, 4)),
         decoration: _pixelDecoration(
           bgColor: kPixelCardBg,
           borderColor: color, // Border matches enemy difficulty
           hasShadow: true,
         ),
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            text,
-            style: font.copyWith(fontSize: _scale(context, 20)),
-            textAlign: TextAlign.center,
-          ),
+        // CHANGED: Replaced FittedBox with Flexible text handling
+        child: Text(
+          text,
+          style: font.copyWith(fontSize: _scale(context, 18), height: 1.1),
+          textAlign: TextAlign.center,
+          maxLines: 3, // Allow up to 3 lines of text
+          overflow: TextOverflow.ellipsis, // Add '...' if it's still too long
         ),
       ),
     );
