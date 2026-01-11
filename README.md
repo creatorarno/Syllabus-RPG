@@ -37,7 +37,7 @@
 
 |                                   Home Camp                                   |                                    Battle Stage                                    |
 | :---------------------------------------------------------------------------: | :--------------------------------------------------------------------------------: |
-| ![Home Screenshot](https://via.placeholder.com/300x600.png?text=Home+Camp+UI) | ![Battle Screenshot](https://via.placeholder.com/300x600.png?text=Battle+Stage+UI) |
+| ![Home Screenshot](./syllabus_rpg/assets/home_ss.png)                         | ![Battle Screenshot](./syllabus_rpg/assets/battle_ss.png) |
 |                      _Manage your hero and pick quests._                      |                        _Slay monsters with your knowledge!_                        |
 
 ---
