@@ -141,9 +141,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.shield_moon, size: 80, color: kPixelGold),
-              const SizedBox(height: 20),
-              Text("SYLLABUS RPG", style: headerFont.copyWith(color: kPixelGold)),
+              Image.asset('assets/logo.png', height: 200, width: 200,),
               const SizedBox(height: 40),
 
               // --- USERNAME (Always Visible) ---
