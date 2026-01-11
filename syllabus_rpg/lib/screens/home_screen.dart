@@ -6,10 +6,18 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
-// Note: Syncfusion import is REMOVED. We don't need it anymore!
-
 import '../providers/game_provider.dart';
 import 'battle_screen.dart';
+
+// --- THEME CONSTANTS ---
+const Color kPixelDarkBlue = Color(0xFF141020);
+const Color kPixelCardBg = Color(0xFF2A2636);
+const Color kPixelInactiveBg = Color(0xFF1A1626);
+const Color kPixelStoneGray = Color(0xFF4E4A4E);
+const Color kPixelGold = Color(0xFFFFD541);
+const Color kPixelRed = Color(0xFFD53C3C);
+const Color kPixelGreen = Color(0xFF5DE76F);
+const Color kPixelLightText = Color(0xFFEFEFEF);
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -21,8 +29,15 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = false;
 
+  // Helper to scale sizes slightly based on screen width (Base width 375)
+  double _scale(BuildContext context, double value) {
+    double screenWidth = MediaQuery.of(context).size.width;
+    // Cap the scaling factor so tablets don't look ridiculously huge
+    double scaleFactor = (screenWidth / 375.0).clamp(0.8, 1.2);
+    return value * scaleFactor;
+  }
+
   Future<void> _pickDocument() async {
-    // 1. Pick the file (PDF only for this mode)
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
@@ -34,19 +49,17 @@ class _HomeScreenState extends State<HomeScreen> {
       try {
         File file = File(result.files.single.path!);
 
-        // 2. Read the file as Raw Bytes using our alias 'td'
-        // This avoids the "Uint8List is defined in..." error.
+        // Read file as Raw Bytes using our alias 'td'
         final td.Uint8List bytes = await file.readAsBytes();
 
         if (mounted) {
-          // 3. Send the bytes DIRECTLY to Gemini
-          // Make sure your GameProvider has the 'generateQuestFromPdf' function!
+          // Send bytes DIRECTLY to Gemini via provider
           await Provider.of<GameProvider>(context, listen: false)
               .generateQuestFromPdf(bytes);
 
           setState(() => _isLoading = false);
 
-          // 4. Navigate to Battle
+          // Navigate to Battle
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const BattleScreen()),
@@ -57,7 +70,10 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() => _isLoading = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Failed to read scroll: $e")),
+            SnackBar(
+              content: Text("Failed to read scroll: $e"),
+              backgroundColor: kPixelRed,
+            ),
           );
         }
       }
@@ -66,53 +82,229 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Define Pixel Fonts
+    final headerFont = GoogleFonts.pressStart2p(
+        color: kPixelLightText,
+        fontSize: _scale(context, 12)
+    );
+    final bodyFont = GoogleFonts.vt323(
+        color: kPixelLightText,
+        fontSize: _scale(context, 20) // Slightly larger for VT323 readability
+    );
+
     return Scaffold(
+      backgroundColor: kPixelDarkBlue,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.shield_moon, size: 80, color: Color(0xFFFFD700)),
-              const SizedBox(height: 20),
-              Text(
-                "SYLLABUS RPG",
-                style: Theme.of(context).textTheme.displayLarge,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                "Turn your boring documents into\nan epic quest.",
-                style: Theme.of(context).textTheme.bodyLarge,
-                textAlign: TextAlign.center,
-              ),
+        // LayoutBuilder for responsive constraints
+        child: LayoutBuilder(
+            builder: (context, constraints) {
+              final double horizontalPadding = constraints.maxWidth * 0.05;
+              final double verticalPadding = constraints.maxHeight * 0.03;
+              final double mainAreaHeight = constraints.maxHeight * 0.20; // 20% height for main action area
 
-              const SizedBox(height: 60),
+              return Padding(
+                padding: EdgeInsets.symmetric(
+                    horizontal: horizontalPadding,
+                    vertical: verticalPadding
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // 1. THE HERO HUD (Top Banner)
+                    _buildHeroHUD(context, headerFont, bodyFont),
 
-              if (_isLoading) ...[
-                const CircularProgressIndicator(color: Color(0xFFE94560)),
-                const SizedBox(height: 20),
-                Text(
-                    "Gemini is reading your PDF...",
-                    style: GoogleFonts.cinzel(color: Colors.white70)
+                    const Spacer(flex: 1),
+
+                    // 2. MAIN ACTION AREA (Loading OR Start Button)
+                    SizedBox(
+                      height: mainAreaHeight,
+                      child: _isLoading
+                          ? _buildLoadingState(headerFont)
+                          : _buildMainQuestButton(context, headerFont, bodyFont),
+                    ),
+
+                    const Spacer(flex: 1),
+
+                    // 3. GUILD GRID (Bottom Buttons)
+                    Expanded(
+                      flex: 3,
+                      child: GridView.count(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: _scale(context, 15),
+                        mainAxisSpacing: _scale(context, 15),
+                        // Dynamic aspect ratio based on available space
+                        childAspectRatio: (constraints.maxWidth / 2) / (constraints.maxHeight * 0.22),
+                        children: [
+                          _buildPixelGridCard(
+                            context: context,
+                            title: "Quest Log",
+                            subtitle: "Redo battles",
+                            icon: Icons.map_outlined,
+                            headerFont: headerFont,
+                            bodyFont: bodyFont,
+                            isActive: true,
+                            onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text("Quest Log opening..."))
+                              );
+                            },
+                          ),
+                          _buildPixelGridCard(
+                            context: context,
+                            title: "Hall of Fame",
+                            subtitle: "Rankings",
+                            icon: Icons.emoji_events_outlined,
+                            headerFont: headerFont,
+                            bodyFont: bodyFont,
+                            isActive: true,
+                            onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text("Connecting to Leaderboard..."))
+                              );
+                            },
+                          ),
+                          _buildPixelGridCard(
+                            context: context,
+                            title: "Party Quests",
+                            subtitle: "Coming Soon...",
+                            icon: Icons.group_outlined,
+                            headerFont: headerFont,
+                            bodyFont: bodyFont,
+                            isActive: false,
+                            onTap: () {},
+                          ),
+                          // Placeholder for future feature or empty slot
+                          Container(),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ] else ...[
-                _buildQuestCard(
-                  title: "New Game",
-                  subtitle: "Upload PDF directly to Gemini",
-                  icon: Icons.upload_file,
-                  color: const Color(0xFFE94560),
-                  onTap: _pickDocument,
+              );
+            }
+        ),
+      ),
+    );
+  }
+
+  // ================= HELPER WIDGETS =================
+
+  Widget _buildLoadingState(TextStyle headerFont) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const CircularProgressIndicator(color: kPixelGold),
+        const SizedBox(height: 20),
+        FittedBox(
+          child: Text(
+            "READING ANCIENT SCROLL...",
+            style: headerFont.copyWith(color: kPixelGold),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeroHUD(BuildContext context, TextStyle headerFont, TextStyle bodyFont) {
+    double avatarSize = _scale(context, 50);
+
+    return Container(
+      padding: EdgeInsets.all(_scale(context, 12)),
+      decoration: _pixelDecoration(bgColor: kPixelCardBg, borderColor: kPixelStoneGray),
+      child: Row(
+        children: [
+          // Avatar Box
+          Container(
+            width: avatarSize, height: avatarSize,
+            decoration: BoxDecoration(
+              color: kPixelStoneGray,
+              border: Border.all(color: kPixelGold, width: _scale(context, 3)),
+            ),
+            child: Icon(Icons.person, color: Colors.white, size: avatarSize * 0.6),
+          ),
+          SizedBox(width: _scale(context, 15)),
+
+          // Stats Column
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text("Sir Coder Lvl. 5", style: headerFont),
                 ),
-                const SizedBox(height: 16),
-                _buildQuestCard(
-                  title: "Load Save",
-                  subtitle: "Coming Soon",
-                  icon: Icons.history,
-                  color: Colors.grey.shade800,
-                  onTap: () {},
+                SizedBox(height: _scale(context, 8)),
+
+                // XP Bar Row
+                Row(
+                  children: [
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          Container(height: _scale(context, 12), color: Colors.black),
+                          FractionallySizedBox(
+                            widthFactor: 0.7, // Example: 70% XP
+                            child: Container(
+                              height: _scale(context, 12),
+                              decoration: BoxDecoration(
+                                  color: kPixelGreen,
+                                  border: Border(right: BorderSide(color: Colors.white, width: _scale(context, 2)))
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: _scale(context, 8)),
+                    FittedBox(
+                      child: Text("2,450 XP", style: bodyFont.copyWith(color: kPixelGold)),
+                    )
+                  ],
                 ),
               ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMainQuestButton(BuildContext context, TextStyle headerFont, TextStyle bodyFont) {
+    return InkWell(
+      onTap: _pickDocument, // Connects to the logic func
+      child: Container(
+        decoration: _pixelDecoration(
+          bgColor: kPixelRed,
+          borderColor: kPixelGold,
+          borderWidth: _scale(context, 4),
+          hasShadow: true,
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: _scale(context, 16)),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.upload_file, size: _scale(context, 40), color: kPixelGold),
+              SizedBox(width: _scale(context, 16)),
+              Flexible(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text("START NEW QUEST", style: headerFont.copyWith(fontSize: _scale(context, 16), color: Colors.white))
+                    ),
+                    const SizedBox(height: 4),
+                    FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text("Summon Monsters from PDF", style: bodyFont.copyWith(fontSize: _scale(context, 18)))
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -120,38 +312,76 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildQuestCard({required String title, required String subtitle, required IconData icon, required Color color, required VoidCallback onTap}) {
+  Widget _buildPixelGridCard({
+    required BuildContext context,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required TextStyle headerFont,
+    required TextStyle bodyFont,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    final double iconSize = _scale(context, 28);
+
     return InkWell(
-      onTap: onTap,
+      onTap: isActive ? onTap : null,
       child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: const Color(0xFF16213E),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.5), width: 1),
-          boxShadow: [BoxShadow(color: color.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))],
+        padding: EdgeInsets.all(_scale(context, 8)),
+        decoration: _pixelDecoration(
+          bgColor: isActive ? kPixelCardBg : kPixelInactiveBg,
+          borderColor: isActive ? kPixelStoneGray : kPixelCardBg,
+          hasShadow: isActive,
         ),
-        child: Row(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-              child: Icon(icon, color: color, size: 28),
+            Icon(icon, size: iconSize, color: isActive ? kPixelLightText : Colors.white24),
+            SizedBox(height: _scale(context, 8)),
+            FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(title, style: headerFont.copyWith(fontSize: _scale(context, 14), color: isActive ? Colors.white : Colors.white54))
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: GoogleFonts.cinzel(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                  Text(subtitle, style: GoogleFonts.lato(fontSize: 14, color: Colors.white54)),
-                ],
-              ),
+            FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(subtitle, style: bodyFont.copyWith(fontSize: _scale(context, 16), color: isActive ? kPixelGold : Colors.white24))
             ),
-            const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 16),
+            if (!isActive)
+              Padding(
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Icon(Icons.lock, size: _scale(context, 12), color: Colors.white24),
+              )
           ],
         ),
       ),
+    );
+  }
+
+  // Custom Painter for the Pixel Art borders and shadows
+  BoxDecoration _pixelDecoration({
+    required Color bgColor,
+    required Color borderColor,
+    double borderWidth = 3.0,
+    bool hasShadow = false,
+  }) {
+    return BoxDecoration(
+      color: bgColor,
+      // Chunky block border - No rounded corners allowed in pixel art!
+      border: Border(
+        top: BorderSide(color: borderColor, width: borderWidth),
+        left: BorderSide(color: borderColor, width: borderWidth),
+        // Faux shadow on right and bottom borders for depth
+        right: BorderSide(color: Colors.black.withOpacity(0.5), width: borderWidth),
+        bottom: BorderSide(color: Colors.black.withOpacity(0.5), width: borderWidth),
+      ),
+      boxShadow: hasShadow ? [
+        // Hard pixel shadow drop (no blur)
+        const BoxShadow(
+          color: Colors.black,
+          offset: Offset(4, 4),
+          blurRadius: 0,
+        )
+      ] : null,
     );
   }
 }
