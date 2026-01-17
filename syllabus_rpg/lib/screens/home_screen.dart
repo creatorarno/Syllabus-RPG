@@ -54,12 +54,13 @@ class _HomeScreenState extends State<HomeScreen> {
   // --- SUPABASE ACTIONS ---
 
   Future<void> _fetchLeaderboard() async {
+    setState(() => _isLoadingLeaderboard = true);
+
     try {
-      final data = await Supabase.instance.client
-          .from('profiles')
-          .select('username, xp')
-          .order('xp', ascending: false)
-          .limit(10);
+      // We call the SQL function 'get_leaderboard'
+      // passing the selected timeframe ('Daily', 'Weekly', etc.)
+      final List<dynamic> data = await Supabase.instance.client
+          .rpc('get_leaderboard', params: {'time_frame': _selectedTimeframe});
 
       if (mounted) {
         setState(() {
@@ -72,6 +73,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) setState(() => _isLoadingLeaderboard = false);
     }
   }
+
 
   Future<void> _signOut() async {
     // 1. Show Confirmation Dialog
@@ -378,8 +380,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
           return GestureDetector(
             onTap: () {
-              setState(() => _selectedTimeframe = tab);
-              // TODO: Add logic to fetch different timeframes if your DB supports it
+              // Only fetch if the tab actually changed
+              if (_selectedTimeframe != tab) {
+                setState(() => _selectedTimeframe = tab);
+                _fetchLeaderboard(); // <--- RE-FETCH DATA ON CLICK
+              }
             },
             child: Container(
               margin: EdgeInsets.only(right: _scale(context, 8)),
